@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Controle: Agenciamento de Cargas</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        
+        :root {
+            --brand-primary: #4f46e5;
+            --brand-success: #10b981;
+            --brand-warning: #f59e0b;
+            --brand-danger: #ef4444;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc; 
+            color: #1e293b;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .glass-header {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 220px;
+            margin: 0 auto;
+            height: 220px;
+        }
+
+        .card-shadow {
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            transition: box-shadow 0.3s ease;
+        }
+
+        .checklist-item {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        input[type="checkbox"] {
+            cursor: pointer;
+            width: 1.25rem;
+            height: 1.25rem;
+            accent-color: var(--brand-primary);
+        }
+
+        input[type="date"], input[type="text"] {
+            outline: none;
+            border: 1px solid #e2e8f0;
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+        }
+
+        @keyframes pulse-subtle {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+        }
+
+        .btn-ready {
+            animation: pulse-subtle 2s infinite ease-in-out;
+        }
+
+        #toast-container {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            z-index: 100;
+        }
+
+        /* --- ESTILOS DE IMPRESSÃO --- */
+        @media print {
+            .no-print { display: none !important; }
+            body { background: white; padding: 0; margin: 0; }
+            .lg\:col-span-2 { width: 100% !important; }
+            .card-shadow { box-shadow: none !important; border: 1px solid #e2e8f0 !important; }
+            input[type="checkbox"] { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            
+            header, input, button, .chart-container, #progress-text, #toast-container { display: none !important; }
+            .flex-grow { padding: 0 !important; margin: 0 !important; }
+            main { padding-top: 0 !important; }
+            
+            #print-header { display: block !important; }
+            .print-only { display: block !important; }
+            
+            #cargoValue-display { display: inline !important; font-weight: bold; color: #1e293b; }
+            #mopp-validity-display { display: inline !important; font-weight: bold; color: #1e293b; }
+        }
+
+        #print-header { display: none; }
+        .print-only { display: none; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <div id="toast-container" class="space-y-2"></div>
+
+    <!-- Elemento Oculto para Importação -->
+    <input type="file" id="fileInput" class="hidden" accept=".json" onchange="loadFromFile(this)">
+
+    <!-- Cabeçalho Formal para o PDF -->
+    <div id="print-header" class="p-8 border-b-2 border-slate-900 mb-6">
+        <div class="flex justify-between items-start">
+            <div>
+                <h1 class="text-2xl font-black uppercase">Relatório de Liberação de Viagem</h1>
+                <p class="text-sm font-bold text-slate-500">Checklist Operacional de Segurança e Documentação</p>
+            </div>
+            <div class="text-right">
+                <p class="text-xs font-bold uppercase text-slate-400">Data de Emissão</p>
+                <p id="print-date" class="text-sm font-black underline"></p>
+            </div>
+        </div>
+        <div class="grid grid-cols-2 gap-4 mt-8">
+            <div class="border p-3 rounded">
+                <p class="text-[10px] font-black uppercase text-slate-400">Cliente</p>
+                <p id="print-client" class="text-sm font-bold">-</p>
+            </div>
+            <div class="border p-3 rounded">
+                <p class="text-[10px] font-black uppercase text-slate-400">Nº do Processo</p>
+                <p id="print-process" class="text-sm font-bold">-</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header Principal -->
+    <header class="glass-header shadow-sm border-b border-slate-200 sticky top-0 z-50 no-print">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                
+                <div class="flex items-center gap-3">
+                    <div class="bg-indigo-600 p-2 rounded-xl shadow-lg shadow-indigo-200">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-extrabold text-slate-900 tracking-tight leading-tight">Agenciamento de Cargas</h1>
+                        <div class="flex gap-2 mt-1">
+                            <button onclick="saveToFile()" class="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:text-indigo-800 flex items-center gap-1 transition-colors">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+                                Salvar
+                            </button>
+                            <span class="text-slate-300 text-[10px]">|</span>
+                            <button onclick="document.getElementById('fileInput').click()" class="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:text-indigo-800 flex items-center gap-1 transition-colors">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-5-8l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                                Abrir
+                            </button>
+                            <span class="text-slate-300 text-[10px]">|</span>
+                            <!-- BOTÃO DE IMPRESSÃO DEDICADO -->
+                            <button onclick="executePrint()" class="text-[10px] font-black text-emerald-600 uppercase tracking-widest hover:text-emerald-800 flex items-center gap-1 transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+                                Imprimir PDF
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex flex-col sm:flex-row gap-3 flex-grow lg:flex-grow-0 lg:max-w-md">
+                    <input type="text" id="clientName" placeholder="Cliente" class="pl-3 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none w-full transition-all">
+                    <input type="text" id="processNumber" placeholder="Nº Processo" class="pl-3 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none w-full transition-all">
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <!-- Coluna Esquerda -->
+            <div class="lg:col-span-2 space-y-6">
+                
+                <!-- Instruções -->
+                <div class="bg-white rounded-2xl shadow-sm p-6 border-l-4 border-indigo-600 border border-slate-100 no-print">
+                    <h2 class="text-lg font-bold text-slate-800 mb-2">Instruções de Uso</h2>
+                    <p class="text-slate-600 text-sm leading-relaxed">
+                        Utilize este painel para validar cada etapa da contratação. A sequência lógica garante a cobertura do seguro e a conformidade legal. 
+                        <strong>Atenção Crítica:</strong> A averbação do seguro deve ocorrer <em>após</em> o CT-e e <em>antes</em> do início da viagem.
+                    </p>
+                </div>
+
+                <!-- Bloco 1 -->
+                <section class="bg-white rounded-2xl border border-slate-100 card-shadow overflow-hidden">
+                    <div class="bg-slate-50/50 p-5 border-b border-slate-100 flex justify-between items-center cursor-pointer hover:bg-slate-50 no-print" onclick="toggleSection('sec-driver')">
+                        <div class="flex items-center gap-4">
+                            <span class="flex items-center justify-center w-8 h-8 rounded-xl bg-indigo-600 text-white font-bold text-sm">1</span>
+                            <h3 class="font-bold text-slate-800 tracking-tight uppercase text-xs sm:text-base">Motorista e Veículo (Pré-Cadastro)</h3>
+                        </div>
+                        <span class="text-slate-400 no-print" id="icon-sec-driver">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path></svg>
+                        </span>
+                    </div>
+                    <div id="sec-driver" class="p-6 space-y-6">
+                        <p class="text-xs text-slate-500 font-medium leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">
+                            Validação dos documentos básicos e requisitos legais para cadastro. O Exame Toxicológico é o ponto de maior atenção.
+                        </p>
+
+                        <div class="space-y-4">
+                            <h4 class="text-[11px] font-black text-slate-400 uppercase tracking-widest">Condutor</h4>
+                            <label class="flex items-start gap-4 checklist-item p-3 rounded-xl hover:bg-slate-50/50 cursor-pointer">
+                                <input type="checkbox" class="mt-1 track-check" data-category="driver">
+                                <div>
+                                    <span class="text-sm font-bold text-slate-700">CNH Válida (Cat C, D ou E)</span>
+                                    <p class="text-xs text-slate-400 mt-0.5 font-medium">Categoria C, D ou E. Verificar EAR.</p>
+                                </div>
+                            </label>
+                            <label class="flex items-start gap-4 checklist-item p-3 rounded-xl hover:bg-slate-50/50 cursor-pointer">
+                                <input type="checkbox" class="mt-1 track-check" data-category="driver">
+                                <span class="text-sm font-bold text-slate-700">Dados Pessoais (RG, CPF, Endereço atualizado)</span>
+                            </label>
+
+                            <div class="bg-rose-50 border border-rose-100 rounded-2xl p-4" id="tox-container">
+                                <label class="flex items-start gap-4 cursor-pointer">
+                                    <input type="checkbox" id="check-tox" class="mt-1 track-check" data-category="driver" onchange="checkCritical('tox')">
+                                    <div>
+                                        <span class="text-sm font-black text-rose-700 uppercase tracking-tight">Exame Toxicológico (Crítico)</span>
+                                        <p class="text-xs text-rose-600 font-medium mt-0.5 text-opacity-80">Deve estar VÁLIDO no app CDT/Renach. Vencimento periódico < 30 dias.</p>
+                                    </div>
+                                </label>
+                            </div>
+
+                            <div class="p-3 border-t border-dashed border-slate-100 mt-4">
+                                <div class="flex flex-wrap items-center gap-5">
+                                    <span class="text-sm font-bold text-slate-600">MOPP Necessário?</span>
+                                    <div class="flex bg-slate-100 p-1.5 rounded-xl border border-slate-200 no-print">
+                                        <button class="px-5 py-1.5 text-xs font-bold rounded-lg transition-all" onclick="toggleMopp(false)" id="mopp-no">Não</button>
+                                        <button class="px-5 py-1.5 text-xs font-bold rounded-lg transition-all" onclick="toggleMopp(true)" id="mopp-yes">Sim</button>
+                                    </div>
+                                    <div id="mopp-date-container" class="hidden flex items-center gap-3">
+                                        <span class="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Validade:</span>
+                                        <input type="date" id="mopp-validity" class="shadow-sm border-indigo-100 bg-indigo-50/30 no-print">
+                                        <span id="mopp-validity-display" class="print-only text-sm font-bold"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="space-y-4 pt-4">
+                            <h4 class="text-[11px] font-black text-slate-400 uppercase tracking-widest">Veículo e Reboque</h4>
+                            <label class="flex items-center gap-4 checklist-item p-3 rounded-xl hover:bg-slate-50 cursor-pointer">
+                                <input type="checkbox" class="track-check" data-category="driver">
+                                <span class="text-sm font-bold text-slate-700">CRLV / Licenciamento (Exercício Atual)</span>
+                            </label>
+                            <label class="flex items-center gap-4 checklist-item p-3 rounded-xl hover:bg-slate-50 cursor-pointer">
+                                <input type="checkbox" class="track-check" data-category="driver">
+                                <span class="text-sm font-bold text-slate-700">RNTRC Ativo e Placa Vinculada</span>
+                            </label>
+                            <label class="flex items-center gap-4 checklist-item p-3 rounded-xl hover:bg-slate-50 cursor-pointer">
+                                <input type="checkbox" class="track-check" data-category="driver">
+                                <span class="text-sm font-bold text-slate-700">Dados Técnicos (Tara, Capacidade, Renavam)</span>
+                            </label>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Bloco 2 -->
+                <section class="bg-white rounded-2xl border border-slate-100 card-shadow overflow-hidden">
+                    <div class="bg-slate-50/50 p-5 border-b border-slate-100 flex justify-between items-center cursor-pointer hover:bg-slate-50 no-print" onclick="toggleSection('sec-finance')">
+                        <div class="flex items-center gap-4">
+                            <span class="flex items-center justify-center w-8 h-8 rounded-xl bg-indigo-600 text-white font-bold text-sm shadow-md">2</span>
+                            <h3 class="font-bold text-slate-800 tracking-tight uppercase text-xs sm:text-base">Financeiro & Gerenciamento de Risco</h3>
+                        </div>
+                        <span class="text-slate-400 no-print" id="icon-sec-finance">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path></svg>
+                        </span>
+                    </div>
+                    <div id="sec-finance" class="p-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div class="space-y-4">
+                                <h4 class="text-[11px] font-black text-slate-400 uppercase tracking-widest border-b pb-1">Pagamento</h4>
+                                <div class="p-3 bg-amber-50 border border-amber-100 rounded-xl"><p class="text-[11px] font-bold text-amber-700">Nota: O saldo deve ser pago ao titular do RNTRC.</p></div>
+                                <label class="flex items-center gap-3 checklist-item p-2 hover:bg-indigo-50/50 rounded-lg cursor-pointer">
+                                    <input type="checkbox" class="track-check" data-category="finance">
+                                    <span class="text-sm font-semibold text-slate-700">Vínculo Proprietário / Condutor validado</span>
+                                </label>
+                                <label class="flex items-center gap-3 checklist-item p-2 hover:bg-indigo-50/50 rounded-lg cursor-pointer">
+                                    <input type="checkbox" class="track-check" data-category="finance">
+                                    <span class="text-sm font-semibold text-slate-700">Dados Bancários do Titular RNTRC</span>
+                                </label>
+                            </div>
+                            <div class="space-y-4">
+                                <h4 class="text-[11px] font-black text-slate-400 uppercase tracking-widest border-b pb-1">Risco (GR)</h4>
+                                <label class="flex items-start gap-3 checklist-item p-3 border border-indigo-50 bg-indigo-50/30 rounded-xl cursor-pointer">
+                                    <input type="checkbox" id="check-risk" class="mt-1 track-check" data-category="finance" onchange="updateRiskStatus(this)">
+                                    <div>
+                                        <span class="text-sm font-bold text-indigo-900">Consulta Buonny/Pamcary</span>
+                                        <p class="text-[10px] text-indigo-500 font-bold uppercase mt-0.5">Motorista e Veículo LIBERADOS.</p>
+                                    </div>
+                                </label>
+                                <label class="flex items-start gap-3 checklist-item p-3 border border-indigo-50 bg-indigo-50/30 rounded-xl cursor-pointer">
+                                    <input type="checkbox" class="mt-1 track-check" data-category="finance">
+                                    <div>
+                                        <span class="text-sm font-bold text-indigo-900">Checklist Físico Realizado</span>
+                                        <p class="text-[10px] text-indigo-500 font-bold uppercase mt-0.5">Pneus, EPIs, condições do baú.</p>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Bloco 3 -->
+                <section class="bg-white rounded-2xl border border-slate-100 card-shadow overflow-hidden">
+                    <div class="bg-slate-50/50 p-5 border-b border-slate-100 flex justify-between items-center cursor-pointer hover:bg-slate-50 no-print" onclick="toggleSection('sec-docs')">
+                        <div class="flex items-center gap-4">
+                            <span class="flex items-center justify-center w-8 h-8 rounded-xl bg-indigo-600 text-white font-bold text-sm shadow-md">3</span>
+                            <h3 class="font-bold text-slate-800 tracking-tight uppercase text-xs sm:text-base">Fluxo de Emissão Documental</h3>
+                        </div>
+                        <span class="text-slate-400 no-print" id="icon-sec-docs">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path></svg>
+                        </span>
+                    </div>
+                    <div id="sec-docs" class="p-8 space-y-6">
+                        <p class="text-xs text-slate-500 font-medium leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">
+                            Siga rigorosamente a ordem abaixo para garantir a legalidade da viagem.
+                        </p>
+
+                        <div class="relative space-y-1 ml-4 border-l-2 border-slate-100">
+                            <div class="relative pb-8 pl-8 group">
+                                <div class="absolute -left-[9px] top-1.5 w-4 h-4 rounded-full bg-white border-4 border-slate-200 doc-bullet transition-all duration-300"></div>
+                                <div class="space-y-4">
+                                    <label class="flex items-center gap-4 p-4 bg-white border border-slate-100 rounded-2xl shadow-sm cursor-pointer hover:border-indigo-300 transition-all group-hover:bg-slate-50">
+                                        <input type="checkbox" class="h-5 w-5 track-check" data-category="docs" onchange="highlightStep(this)">
+                                        <span class="text-sm font-bold text-slate-700">1. Importação de NF-e</span>
+                                    </label>
+                                    <div class="ml-4 flex items-center gap-4">
+                                        <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Valor Total Carga:</span>
+                                        <div class="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 focus-within:ring-2 focus-within:ring-indigo-500 shadow-inner max-w-[240px]">
+                                            <span class="text-sm font-black text-slate-400 select-none">R$</span>
+                                            <input type="text" id="cargoValue" placeholder="0,00" oninput="formatCargoValue(this)" class="w-full bg-transparent outline-none text-sm font-bold text-slate-700 no-print">
+                                            <span id="cargoValue-display" class="print-only text-sm font-bold text-slate-900"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="relative pb-8 pl-8 group">
+                                <div class="absolute -left-[9px] top-1.5 w-4 h-4 rounded-full bg-white border-4 border-slate-200 doc-bullet transition-all duration-300"></div>
+                                <label class="flex items-center gap-4 p-4 bg-white border border-slate-100 rounded-2xl shadow-sm cursor-pointer hover:border-indigo-300 transition-all group-hover:bg-slate-50">
+                                    <input type="checkbox" class="h-5 w-5 track-check" data-category="docs" onchange="highlightStep(this)">
+                                    <span class="text-sm font-bold text-slate-700">2. Emissão de CT-e Emitido e Autorizado</span>
+                                </label>
+                            </div>
+                            <div class="relative pb-8 pl-8 group">
+                                <div class="absolute -left-[9px] top-1.5 w-4 h-4 rounded-full bg-white border-4 border-slate-200 doc-bullet transition-all duration-300"></div>
+                                <label class="flex items-center gap-4 p-4 bg-indigo-600 border border-indigo-600 rounded-2xl shadow-lg shadow-indigo-100 cursor-pointer transition-all hover:bg-indigo-700">
+                                    <input type="checkbox" id="check-insurance" class="h-5 w-5 accent-white track-check" data-category="docs" onchange="highlightStep(this); checkCritical('insurance')">
+                                    <span class="text-sm font-black text-white uppercase tracking-wider">3. Averbação de Seguro (RCTR-C)</span>
+                                </label>
+                            </div>
+                            <div class="relative pb-8 pl-8 group">
+                                <div class="absolute -left-[9px] top-1.5 w-4 h-4 rounded-full bg-white border-4 border-slate-200 doc-bullet transition-all duration-300"></div>
+                                <label class="flex items-center gap-4 p-4 bg-white border border-slate-100 rounded-2xl shadow-sm cursor-pointer hover:border-indigo-300 transition-all group-hover:bg-slate-50">
+                                    <input type="checkbox" class="h-5 w-5 track-check" data-category="docs" onchange="highlightStep(this)">
+                                    <span class="text-sm font-bold text-slate-700">4. MDF-e (Manifesto) Autorizado</span>
+                                </label>
+                            </div>
+                            <div class="relative pl-8 group">
+                                <div class="absolute -left-[9px] top-1.5 w-4 h-4 rounded-full bg-white border-4 border-slate-200 doc-bullet transition-all duration-300"></div>
+                                <label class="flex items-center gap-4 p-4 bg-white border border-slate-100 rounded-2xl shadow-sm cursor-pointer hover:border-indigo-300 transition-all group-hover:bg-slate-50">
+                                    <input type="checkbox" class="h-5 w-5 track-check" data-category="docs" onchange="highlightStep(this)">
+                                    <span class="text-sm font-bold text-slate-700">5. CIOT Gerado & Vinculado</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Bloco 4 -->
+                <section class="bg-white rounded-2xl border border-slate-100 card-shadow overflow-hidden mb-12">
+                    <div class="bg-slate-50/50 p-5 border-b border-slate-100 flex justify-between items-center cursor-pointer hover:bg-slate-50 no-print" onclick="toggleSection('sec-kit')">
+                        <div class="flex items-center gap-4">
+                            <span class="flex items-center justify-center w-8 h-8 rounded-xl bg-indigo-600 text-white font-bold text-sm shadow-md">4</span>
+                            <h3 class="font-bold text-slate-800 tracking-tight uppercase text-xs sm:text-base">Kit de Viagem (Entrega)</h3>
+                        </div>
+                        <span class="text-slate-400 no-print" id="icon-sec-kit">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path></svg>
+                        </span>
+                    </div>
+                    <div id="sec-kit" class="p-6">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <label class="flex items-center gap-4 checklist-item p-4 border border-slate-50 rounded-2xl cursor-pointer hover:bg-slate-50 transition-colors">
+                                <input type="checkbox" class="track-check" data-category="kit">
+                                <span class="text-sm font-bold text-slate-700">DANFEs (Notas Fiscais)</span>
+                            </label>
+                            <label class="flex items-center gap-4 checklist-item p-4 border border-slate-50 rounded-2xl cursor-pointer hover:bg-slate-50 transition-colors">
+                                <input type="checkbox" class="track-check" data-category="kit">
+                                <span class="text-sm font-bold text-slate-700">DACTE (Conhecimento)</span>
+                            </label>
+                            <label class="flex items-center gap-4 checklist-item p-4 border border-slate-50 rounded-2xl cursor-pointer hover:bg-slate-50 transition-colors">
+                                <input type="checkbox" class="track-check" data-category="kit">
+                                <span class="text-sm font-bold text-slate-700">DAMDFE (Manifesto)</span>
+                            </label>
+                            <label class="flex items-center gap-4 checklist-item p-4 border border-slate-50 rounded-2xl cursor-pointer hover:bg-slate-50 transition-colors">
+                                <input type="checkbox" class="track-check" data-category="kit">
+                                <span class="text-sm font-bold text-slate-700">Contrato / CIOT Assinado</span>
+                            </label>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Painel de Status -->
+            <div class="lg:col-span-1 space-y-6 no-print">
+                <div class="bg-white rounded-3xl p-8 border border-slate-100 card-shadow sticky top-28">
+                    <h3 class="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] text-center mb-8">Progresso da contratação</h3>
+                    
+                    <div class="chart-container">
+                        <canvas id="progressChart"></canvas>
+                        <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                            <span id="progress-text" class="text-5xl font-black text-slate-900 leading-none">0%</span>
+                            <span class="text-[10px] text-indigo-500 font-black uppercase tracking-widest mt-1">Ready</span>
+                        </div>
+                    </div>
+
+                    <div class="mt-10 space-y-6">
+                        <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Status da Operação</h4>
+                        <div class="space-y-2">
+                            <div class="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100 transition-all">
+                                <div class="flex items-center gap-3">
+                                    <div id="dot-driver" class="w-2 h-2 rounded-full bg-slate-300"></div>
+                                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">1. Motorista/Veículo</span>
+                                </div>
+                                <span id="status-driver" class="text-[9px] font-black px-3 py-1 rounded-full bg-slate-200 text-slate-500 uppercase">Pendente</span>
+                            </div>
+                            <div class="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100 transition-all">
+                                <div class="flex items-center gap-3">
+                                    <div id="dot-finance" class="w-2 h-2 rounded-full bg-slate-300"></div>
+                                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">2. Financeiro/Risco</span>
+                                </div>
+                                <span id="status-finance" class="text-[9px] font-black px-3 py-1 rounded-full bg-slate-200 text-slate-500 uppercase">Pendente</span>
+                            </div>
+                            <div class="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100 transition-all">
+                                <div class="flex items-center gap-3">
+                                    <div id="dot-docs" class="w-2 h-2 rounded-full bg-slate-300"></div>
+                                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">3. Emissão Doctos</span>
+                                </div>
+                                <span id="status-docs" class="text-[9px] font-black px-3 py-1 rounded-full bg-slate-200 text-slate-500 uppercase">Pendente</span>
+                            </div>
+                            <div class="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100 transition-all">
+                                <div class="flex items-center gap-3">
+                                    <div id="dot-kit" class="w-2 h-2 rounded-full bg-slate-300"></div>
+                                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">4. Kit Viagem</span>
+                                </div>
+                                <span id="status-kit" class="text-[9px] font-black px-3 py-1 rounded-full bg-slate-200 text-slate-500 uppercase">Pendente</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-10">
+                        <button id="btn-dispatch" disabled class="w-full py-5 rounded-2xl font-black text-sm text-white bg-slate-200 cursor-not-allowed transition-all uppercase tracking-widest shadow-lg border-b-4 border-slate-300">
+                            Liberar Viagem ✓
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let progressChartInstance = null;
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            initChart();
+            setupListeners();
+            updateDate();
+            toggleMopp(false);
+            showToast("Painel carregado com sucesso", "info");
+        });
+
+        // --- FUNÇÃO DE IMPRESSÃO ---
+        function executePrint() {
+            try {
+                // Popular dados de impressão
+                document.getElementById('print-client').innerText = document.getElementById('clientName').value || 'NÃO INFORMADO';
+                document.getElementById('print-process').innerText = document.getElementById('processNumber').value || 'NÃO INFORMADO';
+                document.getElementById('print-date').innerText = new Date().toLocaleString('pt-BR');
+                document.getElementById('cargoValue-display').innerText = document.getElementById('cargoValue').value || '0,00';
+                
+                const moppVal = document.getElementById('mopp-validity').value;
+                document.getElementById('mopp-validity-display').innerText = moppVal ? new Date(moppVal).toLocaleDateString('pt-BR') : '-';
+
+                window.print();
+            } catch (e) {
+                showToast("Erro na impressão. Use o navegador (Ctrl+P)", "error");
+            }
+        }
+
+        // --- SALVAR E ABRIR ---
+        function saveToFile() {
+            const client = document.getElementById('clientName').value || 'Checklist';
+            const process = document.getElementById('processNumber').value || 'Processo';
+            const data = {
+                client: client,
+                process: process,
+                cargoValue: document.getElementById('cargoValue').value,
+                moppValidity: document.getElementById('mopp-validity').value,
+                moppActive: !document.getElementById('mopp-date-container').classList.contains('hidden'),
+                checks: Array.from(document.querySelectorAll('.track-check')).map(cb => cb.checked)
+            };
+            const fileName = `${client.replace(/[^a-z0-9]/gi, '_')}_${process.replace(/[^a-z0-9]/gi, '_')}.json`;
+            const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = fileName; a.click();
+            URL.revokeObjectURL(url);
+            showToast("Dados salvos com sucesso");
+        }
+
+        function loadFromFile(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    document.getElementById('clientName').value = data.client || '';
+                    document.getElementById('processNumber').value = data.process || '';
+                    document.getElementById('cargoValue').value = data.cargoValue || '';
+                    document.getElementById('cargoValue-display').innerText = data.cargoValue || '';
+                    document.getElementById('mopp-validity').value = data.moppValidity || '';
+                    toggleMopp(data.moppActive);
+                    const allChecks = document.querySelectorAll('.track-check');
+                    if(data.checks) {
+                        data.checks.forEach((isChecked, index) => {
+                            if (allChecks[index]) {
+                                allChecks[index].checked = isChecked;
+                                if (allChecks[index].dataset.category === 'docs') highlightStep(allChecks[index]);
+                            }
+                        });
+                    }
+                    updateProgress();
+                    checkCritical('tox');
+                    showToast("Dados carregados");
+                } catch (err) { showToast("Erro ao carregar", "error"); }
+            };
+            reader.readAsText(file);
+            input.value = '';
+        }
+
+        // --- LÓGICA DE INTERFACE ---
+        function formatCargoValue(input) {
+            let value = input.value.replace(/\D/g, "");
+            if (value === "") { input.value = ""; return; }
+            value = (value / 100).toFixed(2) + "";
+            value = value.replace(".", ",");
+            value = value.replace(/(\d)(?=(\d{3})+(?!\d))/g, "$1.");
+            input.value = value;
+            document.getElementById('cargoValue-display').innerText = value;
+        }
+
+        function updateDate() {
+            const now = new Date();
+            const el = document.getElementById('current-date');
+            if (el) el.textContent = now.toLocaleDateString('pt-BR');
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('progressChart').getContext('2d');
+            progressChartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Feito', 'Restante'],
+                    datasets: [{
+                        data: [0, 100],
+                        backgroundColor: ['#4f46e5', '#f1f5f9'],
+                        borderWidth: 0,
+                        borderRadius: 20,
+                        cutout: '88%'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                    animation: { duration: 1000 }
+                }
+            });
+        }
+
+        function updateProgress() {
+            const allChecks = document.querySelectorAll('.track-check');
+            const percentage = Math.round((Array.from(allChecks).filter(c => c.checked).length / allChecks.length) * 100) || 0;
+            progressChartInstance.data.datasets[0].data = [percentage, 100 - percentage];
+            progressChartInstance.update();
+            document.getElementById('progress-text').innerText = `${percentage}%`;
+            ['driver', 'finance', 'docs', 'kit'].forEach(updateSectionStatus);
+            checkFinalReadiness(percentage);
+        }
+
+        function updateSectionStatus(category) {
+            const checks = document.querySelectorAll(`.track-check[data-category="${category}"]`);
+            const checked = Array.from(checks).filter(c => c.checked).length;
+            const badge = document.getElementById(`status-${category}`);
+            const dot = document.getElementById(`dot-${category}`);
+            if (checked === checks.length && checks.length > 0) {
+                badge.innerText = "OK"; badge.className = "text-[9px] font-black px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 uppercase";
+                dot.className = "w-2 h-2 rounded-full bg-emerald-500 shadow-sm";
+            } else {
+                badge.innerText = "Pendente"; badge.className = "text-[9px] font-black px-3 py-1 rounded-full bg-slate-200 text-slate-500 uppercase";
+                dot.className = "w-2 h-2 rounded-full bg-slate-300";
+            }
+        }
+
+        function setupListeners() {
+            document.querySelectorAll('.track-check').forEach(box => box.addEventListener('change', updateProgress));
+        }
+
+        function showToast(msg, type = "success") {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const bg = type === "success" ? "bg-emerald-600" : (type === "info" ? "bg-slate-800" : "bg-rose-600");
+            toast.className = `${bg} text-white text-[11px] font-black px-4 py-3 rounded-xl shadow-2xl animate-in slide-in-from-right-full uppercase tracking-widest mb-2 flex items-center gap-2`;
+            toast.innerText = msg; container.appendChild(toast);
+            setTimeout(() => { toast.classList.add('animate-out', 'fade-out'); setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+
+        function toggleSection(id) {
+            const el = document.getElementById(id);
+            const icon = document.getElementById(`icon-${id}`);
+            const isHidden = el.classList.toggle('hidden');
+            if(icon) icon.innerHTML = isHidden ? '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>' : '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path></svg>';
+        }
+
+        function toggleMopp(required) {
+            const container = document.getElementById('mopp-date-container');
+            const yesBtn = document.getElementById('mopp-yes');
+            const noBtn = document.getElementById('mopp-no');
+            if (required) {
+                container.classList.remove('hidden');
+                yesBtn.className = "px-5 py-1.5 text-xs font-black rounded-lg bg-indigo-600 text-white shadow-lg";
+                noBtn.className = "px-5 py-1.5 text-xs font-bold rounded-lg bg-transparent text-slate-400";
+            } else {
+                container.classList.add('hidden');
+                noBtn.className = "px-5 py-1.5 text-xs font-black rounded-lg bg-slate-800 text-white shadow-lg";
+                yesBtn.className = "px-5 py-1.5 text-xs font-bold rounded-lg bg-transparent text-slate-400";
+                document.getElementById('mopp-validity').value = '';
+            }
+        }
+
+        function highlightStep(checkbox) {
+            const bullet = checkbox.closest('.relative').querySelector('.doc-bullet');
+            if (checkbox.checked) {
+                bullet.classList.add('bg-indigo-600', 'border-indigo-600');
+                bullet.classList.remove('bg-white', 'border-slate-200');
+            } else {
+                bullet.classList.remove('bg-indigo-600', 'border-indigo-600');
+                bullet.classList.add('bg-white', 'border-slate-200');
+            }
+        }
+
+        function checkCritical(type) {
+            if (type === 'tox') {
+                const isChecked = document.getElementById('check-tox').checked;
+                const cont = document.getElementById('tox-container');
+                if(isChecked) {
+                    cont.classList.add('bg-emerald-50', 'border-emerald-100');
+                    cont.classList.remove('bg-rose-50', 'border-rose-100');
+                } else {
+                    cont.classList.add('bg-rose-50', 'border-rose-100');
+                    cont.classList.remove('bg-emerald-50', 'border-emerald-100');
+                }
+            }
+        }
+
+        function updateRiskStatus(checkbox) { if (checkbox.checked) showToast("GR validado"); }
+
+        function checkFinalReadiness(percentage) {
+            const btn = document.getElementById('btn-dispatch');
+            const toxCheck = document.getElementById('check-tox').checked;
+            const insCheck = document.getElementById('check-insurance').checked;
+            if (percentage === 100 && toxCheck && insCheck) {
+                btn.disabled = false;
+                btn.className = "w-full py-5 rounded-2xl font-black text-sm text-white bg-emerald-600 hover:bg-emerald-700 shadow-2xl transition-all uppercase tracking-[0.2em] border-b-4 border-emerald-800 btn-ready";
+            } else {
+                btn.disabled = true;
+                btn.className = "w-full py-5 rounded-2xl font-black text-sm text-white bg-slate-200 cursor-not-allowed transition-all uppercase tracking-widest shadow-lg border-b-4 border-slate-300";
+            }
+        }
+    </script>
+</body>
+</html>
